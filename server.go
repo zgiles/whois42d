@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path"
@@ -71,6 +72,7 @@ func (s *Server) handleConn(conn *net.TCPConn) {
 
 type options struct {
 	Port          uint
+	HttpPort      uint
 	Address       string
 	Registry      string
 	SocketTimeout float64
@@ -79,6 +81,7 @@ type options struct {
 func parseFlags() options {
 	var o options
 	flag.UintVar(&o.Port, "port", 43, "port to listen")
+	flag.UintVar(&o.HttpPort, "httpport", 80, "port to listen on for http")
 	flag.StringVar(&o.Address, "address", "*", "address to listen")
 	flag.StringVar(&o.Registry, "registry", ".", "path to dn42 registry")
 	msg := "timeout in seconds before suspending the service when using socket activation"
@@ -160,6 +163,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	httpRouter := http.NewServeMux()
+	httpRouter.Handle("/", http.HandlerFunc(server.registry.HandleHTTPJSON))
+
+	go func() {
+		address := opts.Address + ":" + strconv.Itoa(int(opts.HttpPort))
+		if err := http.ListenAndServe(address, httpRouter); err != nil && err != http.ErrServerClosed {
+			panic(err)
+		}
+	}()
+
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
