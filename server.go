@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"encoding/json"
+	"io/ioutil"
 
 	"github.com/zgiles/whois42d/whois"
 )
@@ -25,8 +27,8 @@ type Server struct {
 	activeWorkers    sync.WaitGroup
 }
 
-func New(dataPath string) *Server {
-	registry := whois.New(dataPath,	"This is the dn42 whois query service.", "dn42", "DN42")
+func New(opts options) *Server {
+	registry := whois.New(opts.Datapath, opts.Header, opts.DNSTopLevel, opts.RegistryTopLevel)
 	return &Server{registry, time.Now(), false, 0, sync.WaitGroup{}}
 }
 
@@ -71,25 +73,48 @@ func (s *Server) handleConn(conn *net.TCPConn) {
 }
 
 type options struct {
-	Port          uint
-	HttpPort      uint
-	Address       string
-	Registry      string
-	SocketTimeout float64
+	configfile		string
+	Port          uint				`json:port`
+	HttpPort      uint				`json:httpport`
+	Address       string			`json:address`
+	Registry      string			`json:registry`
+	Datapath			string
+	SocketTimeout float64			`json:sockettimeout`
+	Header           string		`json:header`
+	DNSTopLevel      string		`json:dnstoplevel`
+	RegistryTopLevel string		`json:registrytoplevel`
 }
 
 func parseFlags() options {
 	var o options
+	flag.StringVar(&o.configfile, "config", "config.json", "config file")
 	flag.UintVar(&o.Port, "port", 43, "port to listen")
 	flag.UintVar(&o.HttpPort, "httpport", 80, "port to listen on for http")
 	flag.StringVar(&o.Address, "address", "*", "address to listen")
 	flag.StringVar(&o.Registry, "registry", ".", "path to dn42 registry")
-	msg := "timeout in seconds before suspending the service when using socket activation"
-	flag.Float64Var(&o.SocketTimeout, "timeout", 10, msg)
+	flag.Float64Var(&o.SocketTimeout, "timeout", 10, "timeout in seconds before suspending the service when using socket activation")
+	flag.StringVar(&o.Header, "header", "This is the dn42 whois query service.", "announcement header")
+	flag.StringVar(&o.DNSTopLevel, "dnstoplevel", "dn42", "DNS TLD")
+	flag.StringVar(&o.RegistryTopLevel, "registrytoplevel", "DN42", "Registry Top Level identifier")
 	flag.Parse()
 	if o.Address == "*" {
 		o.Address = ""
 	}
+
+	// config
+	if _, err := os.Stat(o.configfile); err == nil {
+		jsonfile, jsonfileerr := ioutil.ReadFile(o.configfile)
+		if jsonfileerr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", jsonfileerr)
+			os.Exit(1)
+		}
+		err := json.Unmarshal(jsonfile, &o)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	return o
 }
 
@@ -137,7 +162,8 @@ func createServer(opts options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := New(dataPath)
+	opts.Datapath = dataPath
+	server := New(opts)
 
 	if listeners := Listeners(); len(listeners) > 0 {
 		fmt.Printf("socket action detected\n")
@@ -158,12 +184,15 @@ func createServer(opts options) (*Server, error) {
 
 func main() {
 	opts := parseFlags()
+
+	// create TCP server
 	server, err := createServer(opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
+	// create HTTP server
 	httpRouter := http.NewServeMux()
 	httpRouter.Handle("/", http.HandlerFunc(server.registry.HandleHTTPJSON))
 
@@ -174,12 +203,13 @@ func main() {
 		}
 	}()
 
-
+	// Signals
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
 	signal.Notify(signals, syscall.SIGTERM)
 	signal.Notify(signals, syscall.SIGINT)
 
+	// Exit timeout
 	if server.SocketActivation {
 	Out:
 		for {

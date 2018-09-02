@@ -1,0 +1,8 @@
+{
+	"registry": "data",
+	"port": 43,
+	"httpport": 80,
+	"header": "This is the dn42 whois query service.",
+	"dnstoplevel": "dn42",
+	"registrytoplevel": "DN42"
+}
