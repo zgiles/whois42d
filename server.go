@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Mic92/whois42d/whois"
+	"github.com/zgiles/whois42d/whois"
 )
 
 type Server struct {
@@ -25,7 +25,7 @@ type Server struct {
 }
 
 func New(dataPath string) *Server {
-	registry := whois.Registry{dataPath}
+	registry := whois.New(dataPath,	"This is the dn42 whois query service.", "dn42", "DN42")
 	return &Server{registry, time.Now(), false, 0, sync.WaitGroup{}}
 }
 

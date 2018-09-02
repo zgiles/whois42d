@@ -2,63 +2,17 @@ package whois
 
 import (
 	"bufio"
-	"bytes"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path"
-	"regexp"
-	"sort"
 	"strings"
 )
 
-type Registry struct {
-	DataPath string
-}
-
-type Type struct {
-	Name    string
-	Pattern *regexp.Regexp
-	Kind    int
-}
-
-type Object map[int]interface{}
-
-const (
-	UPPER = iota
-	LOWER
-	ROUTE
-	ROUTE6
-)
-
-type Query struct {
-	Objects []Object
-	Flags   *Flags
-}
-
-var whoisTypes = []Type{
-	{"aut-num", regexp.MustCompile(`^AS([0123456789]+)$`), UPPER},
-	{"dns", regexp.MustCompile(`.dn42$`), LOWER},
-	{"person", regexp.MustCompile(`-DN42$`), UPPER},
-	{"mntner", regexp.MustCompile(`-MNT$`), UPPER},
-	{"schema", regexp.MustCompile(`-SCHEMA$`), UPPER},
-	{"organisation", regexp.MustCompile(`ORG-`), UPPER},
-	{"tinc-keyset", regexp.MustCompile(`^SET-.+-TINC$`), UPPER},
-	{"tinc-key", regexp.MustCompile(`-TINC$`), UPPER},
-	{"as-set", regexp.MustCompile(`^AS`), UPPER},
-	{"route-set", regexp.MustCompile(`^RS-`), UPPER},
-	{"inetnum", nil, ROUTE},
-	{"inet6num", nil, ROUTE6},
-	{"route", nil, ROUTE},
-	{"route6", nil, ROUTE6},
-	{"as-block", regexp.MustCompile(`\d+_\d+`), UPPER},
-}
-
 func (r *Registry) handleObject(conn *net.TCPConn, object Object, flags *Flags) bool {
 	found := false
-	for _, t := range whoisTypes {
+	for _, t := range r.whoisTypes {
 		if len(flags.Types) > 0 && !flags.Types[t.Name] {
 			continue
 		}
@@ -79,7 +33,7 @@ func (r *Registry) handleObject(conn *net.TCPConn, object Object, flags *Flags) 
 }
 
 func (r *Registry) HandleQuery(conn *net.TCPConn) {
-	fmt.Fprint(conn, "% This is the dn42 whois query service.\n\n")
+	fmt.Fprint(conn, "% " + r.Header + "\n\n")
 
 	query := parseQuery(conn)
 	if query == nil {
@@ -88,7 +42,7 @@ func (r *Registry) HandleQuery(conn *net.TCPConn) {
 
 	flags := query.Flags
 	if flags.ServerInfo != "" {
-		printServerInfo(conn, strings.TrimSpace(flags.ServerInfo))
+		r.printServerInfo(conn, strings.TrimSpace(flags.ServerInfo))
 		return
 	}
 	found := false
@@ -102,55 +56,6 @@ func (r *Registry) HandleQuery(conn *net.TCPConn) {
 		fmt.Fprint(conn, "% 404\n")
 	}
 	fmt.Fprint(conn, "\n")
-}
-
-func readCidrs(path string) ([]net.IPNet, error) {
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	cidrs := []net.IPNet{}
-	for _, f := range files {
-		name := strings.Replace(f.Name(), "_", "/", -1)
-		_, cidr, err := net.ParseCIDR(name)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skip invalid net '%s'", f.Name())
-			continue
-		}
-		i := sort.Search(len(cidrs), func(i int) bool {
-			c := cidrs[i]
-			return bytes.Compare(c.Mask, cidr.Mask) >= 0
-		})
-
-		if i < len(cidrs) {
-			cidrs = append(cidrs[:i], append([]net.IPNet{*cidr}, cidrs[i:]...)...)
-		} else {
-			cidrs = append(cidrs, *cidr)
-		}
-	}
-
-	return cidrs, nil
-}
-
-func parseObject(arg string) Object {
-	obj := path.Base(arg)
-	object := Object{
-		UPPER: strings.ToUpper(obj),
-		LOWER: strings.ToLower(obj),
-	}
-
-	ip := net.ParseIP(obj)
-	if ip == nil {
-		ip, _, _ = net.ParseCIDR(arg)
-	}
-	if ip != nil {
-		if ip.To4() == nil {
-			object[ROUTE6] = ip
-		} else {
-			object[ROUTE] = ip.To4()
-		}
-	}
-	return object
 }
 
 func parseQuery(conn *net.TCPConn) *Query {
@@ -180,14 +85,14 @@ func parseQuery(conn *net.TCPConn) *Query {
 	return &query
 }
 
-func printServerInfo(conn *net.TCPConn, what string) {
+func (r *Registry) printServerInfo(conn *net.TCPConn, what string) {
 	switch what {
 	case "version":
 		fmt.Fprintf(conn, "%% whois42d v%d\n", VERSION)
 	case "sources":
-		fmt.Fprintf(conn, "DN42:3:N:0-0\n")
+		fmt.Fprintf(conn, r.RegistryTopLevel+":3:N:0-0\n")
 	case "types":
-		for _, t := range whoisTypes {
+		for _, t := range r.whoisTypes {
 			fmt.Fprintf(conn, "%s\n", t.Name)
 		}
 	default:
