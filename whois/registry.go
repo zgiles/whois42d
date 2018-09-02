@@ -76,6 +76,41 @@ func (r *Registry) retrieveObject(objType string, obj string) ([]byte, string, e
 	return fall, file[len(r.DataPath)+1:], nil
 }
 
+func (r *Registry) findObjectPaths(object Object) []pathpair {
+	var paths []pathpair
+	for _, t := range r.whoisTypes {
+		if t.Kind == ROUTE || t.Kind == ROUTE6 {
+			if object[t.Kind] != nil {
+				p := r.getObjFromIP(t.Name, object[t.Kind].(net.IP))
+				paths = append(paths, p...)
+			}
+		} else {
+			arg := object[t.Kind].(string)
+			if t.Pattern.MatchString(arg) {
+				paths = append(paths, pathpair{t.Name, arg})
+			}
+		}
+	}
+	return paths
+}
+
+func (r *Registry) getObjFromIP(objType string, ip net.IP) []pathpair {
+	var paths []pathpair
+	routePath := path.Join(r.DataPath, objType)
+	cidrs, err := readCidrs(routePath)
+	if err != nil {
+		return paths
+	}
+
+	for _, c := range cidrs {
+		if c.Contains(ip) {
+			obj := strings.Replace(c.String(), "/", "_", -1)
+			paths = append(paths, pathpair{objType, obj})
+		}
+	}
+	return paths
+}
+
 func readCidrs(path string) ([]net.IPNet, error) {
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
