@@ -62,6 +62,20 @@ func New(DataPath string, Header string, DNSTopLevel string, RegistryTopLevel st
 	return r
 }
 
+func (r *Registry) retrieveObject(objType string, obj string) ([]byte, string, error) {
+	file := path.Join(r.DataPath, objType, obj)
+	f, err := os.Open(file)
+	defer f.Close()
+	if err != nil {
+		return []byte(""), string(""), err
+	}
+	fall, fallerr := ioutil.ReadAll(f)
+	if fallerr != nil {
+		return []byte(""), string(""), err
+	}
+	return fall, file[len(r.DataPath)+1:], nil
+}
+
 func readCidrs(path string) ([]net.IPNet, error) {
 	files, err := ioutil.ReadDir(path)
 	if err != nil {

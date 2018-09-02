@@ -10,26 +10,54 @@ import (
 	"strings"
 )
 
+type pathpair struct {
+	objtype string
+	obj		string
+}
+
 func (r *Registry) handleObject(conn *net.TCPConn, object Object, flags *Flags) bool {
 	found := false
-	for _, t := range r.whoisTypes {
-		if len(flags.Types) > 0 && !flags.Types[t.Name] {
-			continue
-		}
+	paths := r.findObjectPaths(object)
+	for _, p := range paths {
+			r.printObject(conn, p.objtype, p.obj)
+			found = true
+	}
+	return found
+}
 
+func (r *Registry) findObjectPaths(object Object) []pathpair {
+	var paths []pathpair
+	for _, t := range r.whoisTypes {
 		if t.Kind == ROUTE || t.Kind == ROUTE6 {
 			if object[t.Kind] != nil {
-				found = found || r.printNet(conn, t.Name, object[t.Kind].(net.IP))
+				p := r.getObjFromIP(t.Name, object[t.Kind].(net.IP))
+				paths = append(paths, p...)
 			}
 		} else {
 			arg := object[t.Kind].(string)
 			if t.Pattern.MatchString(arg) {
-				r.printObject(conn, t.Name, arg)
-				found = true
+				paths = append(paths, pathpair{t.Name, arg})
 			}
 		}
 	}
-	return found
+	return paths
+}
+
+func (r *Registry) getObjFromIP(objType string, ip net.IP) []pathpair {
+	var paths []pathpair
+	routePath := path.Join(r.DataPath, objType)
+	cidrs, err := readCidrs(routePath)
+	if err != nil {
+		return paths
+	}
+
+	for _, c := range cidrs {
+		if c.Contains(ip) {
+			obj := strings.Replace(c.String(), "/", "_", -1)
+			paths = append(paths, pathpair{objType, obj})
+		}
+	}
+	return paths
 }
 
 func (r *Registry) HandleQuery(conn *net.TCPConn) {
@@ -119,18 +147,12 @@ func (r *Registry) printNet(conn *net.TCPConn, name string, ip net.IP) bool {
 }
 
 func (r *Registry) printObject(conn *net.TCPConn, objType string, obj string) {
-	file := path.Join(r.DataPath, objType, obj)
-
-	f, err := os.Open(file)
-	defer f.Close()
+	content, path, err := r.retrieveObject(objType, obj)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return
-		}
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return
 	}
-	fmt.Fprintf(conn, "%% Information related to '%s':\n", file[len(r.DataPath)+1:])
-	conn.ReadFrom(f)
+	fmt.Fprintf(conn, "%% Information related to '%s':\n", path)
+	conn.Write(content)
 	fmt.Fprint(conn, "\n")
 }
