@@ -194,7 +194,11 @@ func main() {
 
 	// create HTTP server
 	httpRouter := http.NewServeMux()
-	httpRouter.Handle("/", http.HandlerFunc(server.registry.HandleHTTPJSON))
+	httpRouter.Handle("/", HandleHTTPHelp())
+	httpRouter.Handle("/api/1/text", server.registry.HandleHTTPBoth("text"))
+	httpRouter.Handle("/api/1/json", server.registry.HandleHTTPBoth("json"))
+	httpRouter.Handle("/api/1/version", server.registry.HandleHTTPVersion())
+	httpRouter.Handle("/api/1/types", server.registry.HandleHTTPTypes())
 
 	go func() {
 		address := opts.Address + ":" + strconv.Itoa(int(opts.HttpPort))
