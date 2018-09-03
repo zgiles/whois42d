@@ -2,5 +2,6 @@ language: go
 
 go:
   - 1.3
+  - "1.11"
   - tip
 script: true
